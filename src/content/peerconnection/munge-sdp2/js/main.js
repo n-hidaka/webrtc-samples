@@ -8,6 +8,16 @@
 
 'use strict';
 
+const {
+  SkyWayAuthToken,
+  SkyWayContext,
+  SkyWayMediaDevices,
+  SkyWayRoom,
+  LocalAudioStream,
+  LocalVideoStream,
+  uuidV4,
+} = skyway_room;
+
 try {
   navigator.mediaDevices.enumerateDevices()
       .then(gotSources);
@@ -16,24 +26,28 @@ try {
 }
 
 const getMediaButton = document.querySelector('button#getMedia');
-const createPeerConnectionButton = document.querySelector('button#createPeerConnection');
-const createOfferButton = document.querySelector('button#createOffer');
-const setOfferButton = document.querySelector('button#setOffer');
-const createAnswerButton = document.querySelector('button#createAnswer');
-const setAnswerButton = document.querySelector('button#setAnswer');
-const hangupButton = document.querySelector('button#hangup');
-let dataChannelDataReceived;
+const joinSkyWayBetaButton = document.querySelector('button#joinSkyWayBeta');
+const leaveSkyWayBetaButton = document.querySelector('button#leaveSkyWayBeta');
+const publishAudioButton = document.querySelector('button#publishAudio');
+const publishVideoButton = document.querySelector('button#publishVideo');
+const unpublishAudioButton = document.querySelector('button#unpublishAudio');
+const unpublishVideoButton = document.querySelector('button#unpublishVideo');
+const subscribeAudioButton = document.querySelector('button#subscribeAudio');
+const subscribeVideoButton = document.querySelector('button#subscribeVideo');
+const unsubscribeAudioButton = document.querySelector('button#unsubscribeAudio');
+const unsubscribeVideoButton = document.querySelector('button#unsubscribeVideo');
 
 getMediaButton.onclick = getMedia;
-createPeerConnectionButton.onclick = createPeerConnection;
-createOfferButton.onclick = createOffer;
-setOfferButton.onclick = setOffer;
-createAnswerButton.onclick = createAnswer;
-setAnswerButton.onclick = setAnswer;
-hangupButton.onclick = hangup;
-
-const offerSdpTextarea = document.querySelector('div#local textarea');
-const answerSdpTextarea = document.querySelector('div#remote textarea');
+joinSkyWayBetaButton.onclick = joinSkyWayBeta;
+leaveSkyWayBetaButton.onclick = leaveSkyWayBeta;
+publishAudioButton.onclick = publishAudio;
+publishVideoButton.onclick = publishVideo;
+unpublishAudioButton.onclick = unpublishAudio;
+unpublishVideoButton.onclick = unpublishVideo;
+subscribeAudioButton.onclick = subscribeAudio;
+subscribeVideoButton.onclick = subscribeVideo;
+unsubscribeAudioButton.onclick = unsubscribeAudio;
+unsubscribeVideoButton.onclick = unsubscribeVideo;
 
 const audioSelect = document.querySelector('select#audioSrc');
 const videoSelect = document.querySelector('select#videoSrc');
@@ -42,21 +56,13 @@ audioSelect.onchange = videoSelect.onchange = getMedia;
 
 const localVideo = document.querySelector('div#local video');
 const remoteVideo = document.querySelector('div#remote video');
+const remoteAudio = document.querySelector('div#remote audio');
 
 const selectSourceDiv = document.querySelector('div#selectSource');
 
-let localPeerConnection;
-let remotePeerConnection;
+let room, me;
+
 let localStream;
-let sendChannel;
-let receiveChannel;
-const dataChannelOptions = {ordered: true};
-let dataChannelCounter = 0;
-let sendDataLoop;
-const offerOptions = {
-  offerToReceiveAudio: 1,
-  offerToReceiveVideo: 1
-};
 
 function gotSources(sourceInfos) {
   selectSourceDiv.classList.remove('hidden');
@@ -121,253 +127,373 @@ function gotStream(stream) {
   console.log('Received local stream');
   localVideo.srcObject = stream;
   localStream = stream;
-  createPeerConnectionButton.disabled = false;
+  joinSkyWayBetaButton.disabled = false;
 }
 
-function createPeerConnection() {
-  createPeerConnectionButton.disabled = true;
-  createOfferButton.disabled = false;
-  console.log('Starting call');
-  const videoTracks = localStream.getVideoTracks();
-  const audioTracks = localStream.getAudioTracks();
-
-  if (videoTracks.length > 0) {
-    console.log(`Using video device: ${videoTracks[0].label}`);
+function joinSkyWayBeta() {
+  if (localStorage.getItem('appId') === null) {
+    const _appId = prompt('[Initial setting 1/2] Input appId');
+    if (_appId === null || _appId === '') return;
+    localStorage.setItem('appId', _appId);
   }
+  const appId = localStorage.getItem('appId');
+  console.log('%o', { appId });
 
-  if (audioTracks.length > 0) {
-    console.log(`Using audio device: ${audioTracks[0].label}`);
+
+  if (localStorage.getItem('skey') === null) {
+    const _skey = prompt('[Initial setting 2/2] Input secret key');
+    if (_skey === null || _skey === '') return;
+    console.log('%o', { _skey });
+    localStorage.setItem('skey', _skey);
   }
-  const servers = null;
+  const skey = localStorage.getItem('skey');
+  console.log('%o', { skey });
 
-  localPeerConnection = new RTCPeerConnection(servers);
-  console.log('Created local peer connection object localPeerConnection');
-  localPeerConnection.onicecandidate = e => onIceCandidate(localPeerConnection, e);
-  sendChannel = localPeerConnection.createDataChannel('sendDataChannel', dataChannelOptions);
-  sendChannel.onopen = onSendChannelStateChange;
-  sendChannel.onclose = onSendChannelStateChange;
-  sendChannel.onerror = onSendChannelStateChange;
-
-  remotePeerConnection = new RTCPeerConnection(servers);
-  console.log('Created remote peer connection object remotePeerConnection');
-  remotePeerConnection.onicecandidate = e => onIceCandidate(remotePeerConnection, e);
-  remotePeerConnection.ontrack = gotRemoteStream;
-  remotePeerConnection.ondatachannel = receiveChannelCallback;
-
-  localStream.getTracks()
-      .forEach(track => localPeerConnection.addTrack(track, localStream));
-  console.log('Adding Local Stream to peer connection');
-}
-
-function onSetSessionDescriptionSuccess() {
-  console.log('Set session description success.');
-}
-
-function onSetSessionDescriptionError(error) {
-  console.log(`Failed to set session description: ${error.toString()}`);
-}
-
-async function createOffer() {
-  try {
-    const offer = await localPeerConnection.createOffer(offerOptions);
-    gotDescription1(offer);
-  } catch (e) {
-    onCreateSessionDescriptionError(e);
-  }
-}
-
-function onCreateSessionDescriptionError(error) {
-  console.log(`Failed to create session description: ${error.toString()}`);
-}
-
-async function setOffer() {
-  // Restore the SDP from the textarea. Ensure we use CRLF which is what is generated
-  // even though https://tools.ietf.org/html/rfc4566#section-5 requires
-  // parsers to handle both LF and CRLF.
-  const sdp = offerSdpTextarea.value
-      .split('\n')
-      .map(l => l.trim())
-      .join('\r\n');
-  const offer = {
-    type: 'offer',
-    sdp: sdp
-  };
-  console.log(`Modified Offer from localPeerConnection\n${sdp}`);
-
-  try {
-    // eslint-disable-next-line no-unused-vars
-    const ignore = await localPeerConnection.setLocalDescription(offer);
-    onSetSessionDescriptionSuccess();
-    setOfferButton.disabled = true;
-  } catch (e) {
-    onSetSessionDescriptionError(e);
+  const roomType = localStorage.getItem('roomType') || "p2p";
+  if (roomType !== "p2p" && roomType !== "sfu") {
+    alert('localStorage roomType must be "p2p" or "sfu"');
     return;
   }
 
-  try {
-    // eslint-disable-next-line no-unused-vars
-    const ignore = await remotePeerConnection.setRemoteDescription(offer);
-    onSetSessionDescriptionSuccess();
-    createAnswerButton.disabled = false;
-  } catch (e) {
-    onSetSessionDescriptionError(e);
-    return;
+  const roomId = prompt('Input room ID');
+  if (roomId === null || roomId === '') return;
+  console.log('%o', { roomId });
+
+
+  joinSkyWayBetaButton.disabled = true;
+
+
+  const testToken = new SkyWayAuthToken({
+    jti: uuidV4(),
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 600,
+    scope: {
+      app: {
+        id: appId,
+        turn: true,
+        actions: ["read"],
+        channels: [
+          {
+            id: "*",
+            name: "*",
+            actions: ["write"],
+            members: [
+              {
+                id: "*",
+                name: "*",
+                actions: ["write"],
+                publication: {
+                  actions: ["write"],
+                },
+                subscription: {
+                  actions: ["write"],
+                },
+              },
+            ],
+            sfuBots: [
+              {
+                actions: ["write"],
+                forwardings: [
+                  {
+                    actions: ["write"]
+                  }
+                ]
+              }
+            ]
+          },
+        ],
+      },
+    },
+  });
+  const tokenString = testToken.encode(skey);
+  console.log('%o', { tokenString });
+
+
+  (async () => {
+
+    const context = await SkyWayContext.Create(tokenString);
+
+    room = await SkyWayRoom.FindOrCreate(context, {
+      type: roomType,
+      name: roomId,
+    });
+
+    // - debug log for room events
+    room.onClosed.add(async (e) => { console.debug('room.onClosed: %o', { e }); });
+    room.onMemberJoined.add(async (e) => { console.debug('room.onMemberJoined: %o', { e }); });
+    room.onMemberLeft.add(async (e) => { console.debug('room.onMemberLeft: %o', { e }); });
+    room.onMemberMetadataUpdated.add(async (e) => { console.debug('room.onMemberMetadataUpdated: %o', { e }); });
+    room.onMembershipChanged.add(async (e) => { console.debug('room.onMembershipChanged: %o', { e }); });
+    room.onMetadataUpdated.add(async (e) => { console.debug('room.onMetadataUpdated: %o', { e }); });
+    room.onPublicationChanged.add(async (e) => { console.debug('room.onPublicationChanged: %o', { e }); });
+    room.onPublicationMetadataUpdated.add(async (e) => { console.debug('room.onPublicationMetadataUpdated: %o', { e }); });
+    room.onStreamPublished.add(async (e) => { console.debug('room.onStreamPublished: %o', { e }); });
+    room.onStreamSubscribed.add(async (e) => { console.debug('room.onStreamSubscribed: %o', { e }); });
+    room.onStreamUnpublished.add(async (e) => { console.debug('room.onStreamUnpublished: %o', { e }); });
+    room.onStreamUnsubscribed.add(async (e) => { console.debug('room.onStreamUnsubscribed: %o', { e }); });
+    room.onSubscriptionChangedEvent.add(async (e) => { console.debug('room.onSubscriptionChangedEvent: %o', { e }); });
+
+    me = await room.join();
+
+    // - debug log for localMember events
+    me.onLeft.add(async (e) => { console.debug('me.onLeft: %o', { e }); });
+    me.onMetadataUpdated.add(async (e) => { console.debug('me.onMetadataUpdated: %o', { e }); });
+    me.onPublicationChanged.add(async (e) => { console.debug('me.onPublicationChanged: %o', { e }); });
+    me.onStreamPublished.add(async (e) => { console.debug('me.onStreamPublished: %o', { e }); });
+    me.onStreamSubscribed.add(async (e) => { console.debug('me.onStreamSubscribed: %o', { e }); });
+    me.onStreamUnpublished.add(async (e) => { console.debug('me.onStreamUnpublished: %o', { e }); });
+    me.onStreamUnsubscribed.add(async (e) => { console.debug('me.onStreamUnsubscribed: %o', { e }); });
+    me.onSubscriptionChanged.add(async (e) => { console.debug('me.onSubscriptionChanged: %o', { e }); });
+
+    // - change enable/disabled of pub/unpub button
+    // - TODO: update room info
+    me.onStreamPublished.add(async ({publication}) => {
+      switch (publication.contentType) {
+        case "audio":
+          publishAudioButton.disabled = true;
+          unpublishAudioButton.disabled = false;
+          break;
+        case "video":
+          publishVideoButton.disabled = true;
+          unpublishVideoButton.disabled = false;
+          break;
+        default:
+          break;
+      }
+    });
+
+    // - change enable/disabled of pub/unpub button
+    // - TODO: update room info
+    me.onStreamUnpublished.add(async ({publication}) => {
+      switch (publication.contentType) {
+        case "audio":
+          publishAudioButton.disabled = false;
+          unpublishAudioButton.disabled = true;
+          break;
+        case "video":
+          publishVideoButton.disabled = false;
+          unpublishVideoButton.disabled = true;
+          break;
+        default:
+          break;
+      }
+    });
+
+    // - change enable/disabled of sub/unsub button
+    // - apply stream of subscription
+    // - TODO: update room info
+    me.onStreamSubscribed.add(async (e) => {
+      // console.log("me.onStreamSubscribed: ", { e });
+      // console.group(e.subscription.subscriber.id);
+      // console.log("===== %o", e.subscription);
+      // console.log("===== %o", e.subscription.stream);
+      // console.log("===== %o", e.stream);
+      
+      const stream = new MediaStream([e.stream.track]);
+      switch (e.subscription.contentType) {
+        case "audio":
+          _gotRemoteAudioStream(stream);          
+          subscribeAudioButton.disabled = true;
+          unsubscribeAudioButton.disabled = false;
+          break;      
+        case "video":
+          _gotRemoteVideoStream(stream);          
+          subscribeVideoButton.disabled = true;
+          unsubscribeVideoButton.disabled = false;
+          break;      
+        default:
+          break;
+      }
+    });
+
+    // - change enable/disabled of sub/unsub button
+    // - TODO: detouch stream of subscription
+    // - TODO: update room info
+    me.onStreamUnsubscribed.add(async (e) => {
+      switch (e.subscription.contentType) {
+        case "audio":
+          subscribeAudioButton.disabled = false;
+          unsubscribeAudioButton.disabled = true;
+          break;      
+        case "video":
+          subscribeVideoButton.disabled = false;
+          unsubscribeVideoButton.disabled = true;
+          break;      
+        default:
+          break;
+      }
+    });
+
+    // - auto subscribe for publication after join
+    // - change enable/disabled of sub/unsub button
+    // - TODO: update room info
+    room.onStreamPublished.add(async (e) => {
+      if (e.publication.publisher.id === me.id) return;
+
+      // other publication
+      switch (e.publication.contentType) {
+        case "audio":
+          subscribeAudioButton.disabled = false;
+          unsubscribeAudioButton.disabled = true;
+          subscribeAudio();
+          break;
+        case "video":
+          subscribeVideoButton.disabled = false;
+          unsubscribeVideoButton.disabled = true;
+          subscribeVideo();
+          break;
+        default:
+          break;
+      }
+    });
+
+    // - change enable/disabled of sub/unsub button
+    // - TODO: update room info
+    room.onStreamUnpublished.add(async (e) => {
+      if (e.publication.publisher.id === me.id) return;
+
+      // other publication
+      switch (e.publication.contentType) {
+        case "audio":
+          subscribeAudioButton.disabled = true;
+          unsubscribeAudioButton.disabled = true;
+          break;
+        case "video":
+          subscribeVideoButton.disabled = true;
+          unsubscribeVideoButton.disabled = true;
+          break;
+        default:
+          break;
+      }
+    });
+
+    // - TODO: update room info
+    room.onStreamSubscribed.add(async (e) => {
+      // console.log("room.onStreamSubscribed: ", { e });
+
+      // if (e.subscription.subscriber.id !== me.id) {
+      //   console.log("other's subscription")
+      //   //return;
+      // }
+
+      // console.group(e.subscription.subscriber.id)
+      // console.log("=====");
+      // console.log("me.id:                                 %s", me.id);
+      // console.log("subscription.publication.publisher.id: %s", e.subscription.publication.publisher.id);
+      // console.log("subscription.subscriber.id:            %s", e.subscription.subscriber.id);
+      // console.log("=====");
+
+      // console.log("===== %o", e.subscription);
+      // console.log("===== %o", e.subscription.stream);
+      // console.groupEnd();
+    });
+
+    // - auto subscribe for publications before join
+    subscribeAudio();
+    subscribeVideo();
+
+    // - auto publish
+    publishAudio();
+    publishVideo();
+  })();
+
+  console.log('Starting join');
+  leaveSkyWayBetaButton.disabled = false;
+}
+
+function leaveSkyWayBeta() {
+  me.leave();
+
+  leaveSkyWayBetaButton.disabled = true;
+  joinSkyWayBetaButton.disabled = false;
+  publishAudioButton.disabled = true;
+  unpublishAudioButton.disabled = true;
+  publishVideoButton.disabled = true;
+  unpublishVideoButton.disabled = true;
+}
+
+function _gotRemoteVideoStream(stream) {
+  console.log("_gotRemoteVideoStream(%o)", stream)
+  if (remoteVideo.srcObject !== stream) {
+    remoteVideo.srcObject = stream;
+    console.log('Received remote video stream');
   }
 }
 
-function gotDescription1(description) {
-  offerSdpTextarea.disabled = false;
-  offerSdpTextarea.value = description.sdp;
-  createOfferButton.disabled = true;
-  setOfferButton.disabled = false;
-}
-
-async function createAnswer() {
-  // Since the 'remote' side has no media stream we need
-  // to pass in the right constraints in order for it to
-  // accept the incoming offer of audio and video.
-  try {
-    const answer = await remotePeerConnection.createAnswer();
-    gotDescription2(answer);
-  } catch (e) {
-    onCreateSessionDescriptionError(e);
+function _gotRemoteAudioStream(stream) {
+  console.log("_gotRemoteAudioStream(%o)", stream)
+  if (remoteAudio.srcObject !== stream) {
+    remoteAudio.srcObject = stream;
+    console.log('Received remote audio stream');
   }
 }
 
-async function setAnswer() {
-  setAnswerButton.disabled = false;
-  // Restore the SDP from the textarea. Ensure we use CRLF which is what is generated
-  // even though https://tools.ietf.org/html/rfc4566#section-5 requires
-  // parsers to handle both LF and CRLF.
-  const sdp = answerSdpTextarea.value
-      .split('\n')
-      .map(l => l.trim())
-      .join('\r\n');
-  const answer = {
-    type: 'answer',
-    sdp: sdp
-  };
-
-  try {
-    // eslint-disable-next-line no-unused-vars
-    const ignore = await remotePeerConnection.setLocalDescription(answer);
-    onSetSessionDescriptionSuccess();
-    setAnswerButton.disabled = true;
-  } catch (e) {
-    onSetSessionDescriptionError(e);
-    return;
-  }
-
-  console.log(`Modified Answer from remotePeerConnection\n${sdp}`);
-  try {
-    // eslint-disable-next-line no-unused-vars
-    const ignore = await localPeerConnection.setRemoteDescription(answer);
-    onSetSessionDescriptionSuccess();
-  } catch (e) {
-    onSetSessionDescriptionError(e);
-    return;
-  }
-  hangupButton.disabled = false;
-  createOfferButton.disabled = false;
+function publishAudio() {
+  const [audioTrack] = localStream.getAudioTracks();
+  const localAudioStream = new LocalAudioStream('label', audioTrack);
+  me.publish(localAudioStream);
 }
 
-function gotDescription2(description) {
-  answerSdpTextarea.disabled = false;
-  answerSdpTextarea.value = description.sdp;
-  createAnswerButton.disabled = true;
-  setAnswerButton.disabled = false;
+function publishVideo() {
+  const [videoTrack] = localStream.getVideoTracks();
+  const localVideoStream = new LocalVideoStream('label', videoTrack);
+  me.publish(localVideoStream);
 }
 
-function sendData() {
-  if (sendChannel.readyState === 'open') {
-    sendChannel.send(dataChannelCounter);
-    console.log(`DataChannel send counter: ${dataChannelCounter}`);
-    dataChannelCounter++;
-  }
+function unpublishAudio() {
+  unpublishMedia("audio");
 }
 
-function hangup() {
-  remoteVideo.srcObject = null;
-  console.log('Ending call');
-  localStream.getTracks().forEach(track => track.stop());
-  sendChannel.close();
-  if (receiveChannel) {
-    receiveChannel.close();
-  }
-  localPeerConnection.close();
-  remotePeerConnection.close();
-  localPeerConnection = null;
-  remotePeerConnection = null;
-  offerSdpTextarea.disabled = true;
-  answerSdpTextarea.disabled = true;
-  getMediaButton.disabled = false;
-  createPeerConnectionButton.disabled = true;
-  createOfferButton.disabled = true;
-  setOfferButton.disabled = true;
-  createAnswerButton.disabled = true;
-  setAnswerButton.disabled = true;
-  hangupButton.disabled = true;
+function unpublishVideo() {
+  unpublishMedia("video");
 }
 
-function gotRemoteStream(e) {
-  if (remoteVideo.srcObject !== e.streams[0]) {
-    remoteVideo.srcObject = e.streams[0];
-    console.log('Received remote stream');
-  }
+function unpublishMedia(contentType) {
+  // - 現状、1User 1Video/1Audioの前提のため、filter結果すべてをunpublish
+  me.publications
+  .filter(publication => publication.contentType === contentType)
+  .forEach(publication => me.unpublish(publication.id));
 }
 
-function getOtherPc(pc) {
-  return (pc === localPeerConnection) ? remotePeerConnection : localPeerConnection;
+function subscribeAudio() {
+  subscribeAudioButton.disabled = true;
+  subscribeMedia("audio");
 }
 
-function getName(pc) {
-  return (pc === localPeerConnection) ? 'localPeerConnection' : 'remotePeerConnection';
+function subscribeVideo() {
+  subscribeVideoButton.disabled = true;
+  subscribeMedia("video")
 }
 
-async function onIceCandidate(pc, event) {
-  try {
-    // eslint-disable-next-line no-unused-vars
-    const ignore = await getOtherPc(pc).addIceCandidate(event.candidate);
-    onAddIceCandidateSuccess(pc);
-  } catch (e) {
-    onAddIceCandidateError(pc, e);
-  }
-
-  console.log(`${getName(pc)} ICE candidate:\n${event.candidate ? event.candidate.candidate : '(null)'}`);
+function subscribeMedia(contentType) {
+  // - 現状、他１Userは1Userの前提のため、filter結果すべてをsubscribe
+  // - room利用だから、publication.publisher.member.typeは見なくていい
+  room.publications
+  .filter(publication => publication.publisher.member.id !== me.id)
+  .filter(publication => publication.contentType === contentType)
+  .forEach(publication => {
+    console.log('subscribe %s, %s from %s', publication.id, publication.contentType, publication.publisher.member.id);
+    me.subscribe(publication.id);
+  });
 }
 
-function onAddIceCandidateSuccess() {
-  console.log('AddIceCandidate success.');
+function unsubscribeAudio() {
+  console.log('unsubscribeMedia("audio");');
+  unsubscribeAudioButton.disabled = true;
+  unsubscribeMedia("audio")
 }
 
-function onAddIceCandidateError(error) {
-  console.log(`Failed to add Ice Candidate: ${error.toString()}`);
+function unsubscribeVideo() {
+  console.log('unsubscribeMedia("video");');
+  unsubscribeVideoButton.disabled = true;
+  unsubscribeMedia("video")
 }
 
-function receiveChannelCallback(event) {
-  console.log('Receive Channel Callback');
-  receiveChannel = event.channel;
-  receiveChannel.onmessage = onReceiveMessageCallback;
-  receiveChannel.onopen = onReceiveChannelStateChange;
-  receiveChannel.onclose = onReceiveChannelStateChange;
-}
-
-function onReceiveMessageCallback(event) {
-  dataChannelDataReceived = event.data;
-  console.log(`DataChannel receive counter: ${dataChannelDataReceived}`);
-}
-
-function onSendChannelStateChange() {
-  const readyState = sendChannel.readyState;
-  console.log(`Send channel state is: ${readyState}`);
-  if (readyState === 'open') {
-    sendDataLoop = setInterval(sendData, 1000);
-  } else {
-    clearInterval(sendDataLoop);
-  }
-}
-
-function onReceiveChannelStateChange() {
-  const readyState = receiveChannel.readyState;
-  console.log(`Receive channel state is: ${readyState}`);
+function unsubscribeMedia(contentType) {
+  me.subscriptions
+  .filter(subscription => subscription.contentType === contentType)
+  .forEach(subscription => {
+    console.log('unsubscribe %s, %s from %s', subscription.id, subscription.contentType, subscription.subscriber.member.id);
+    me.unsubscribe(subscription.id);
+  });
 }

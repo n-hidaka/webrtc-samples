@@ -20,7 +20,7 @@
 
     <base target="_blank">
 
-    <title>Munge SDP</title>
+    <title>WebRTC samples</title>
 
     <link rel="icon" sizes="192x192" href="../../../images/webrtc-icon-192x192.png">
     <link href="//fonts.googleapis.com/css?family=Roboto:300,400,500,700" rel="stylesheet" type="text/css">
@@ -30,10 +30,11 @@
 </head>
 
 <body>
+<script src="https://cdn.jsdelivr.net/npm/@skyway-sdk/room/dist/skyway_room-latest.js"></script>
 
 <div id="container">
 
-    <h1><a href="//webrtc.github.io/samples/" title="WebRTC samples homepage">WebRTC samples</a> <span>Munge SDP</span>
+    <h1><a href="//webrtc.github.io/samples/" title="WebRTC samples homepage">WebRTC samples</a> <span></span>
     </h1>
 
     <div id="selectSource" class="hidden">
@@ -49,49 +50,35 @@
     </div>
 
     <div id="buttons">
-        <button id="getMedia">Get media</button>
-        <button id="createPeerConnection" disabled>Create peer connection</button>
-        <button id="createOffer" disabled>Create offer</button>
-        <button id="setOffer" disabled>Set offer</button>
-        <button id="createAnswer" disabled>Create answer</button>
-        <button id="setAnswer" disabled>Set answer</button>
-        <button id="hangup" disabled>Hang up</button>
+        <button id="getMedia" class="start">Get media</button>
+        <button id="joinSkyWayBeta" class="start" disabled>Join SkyWay Beta</button>
+        <button id="leaveSkyWayBeta" disabled>Leave SkyWay Beta</button>
     </div>
 
     <div id="preview">
         <div id="local">
             <h2>Local</h2>
+            <button id="publishAudio" class="start" disabled>publish Audio</button>
+            <button id="unpublishAudio" disabled>unpublish Audio</button>
+            <button id="publishVideo" class="start" disabled>publish Video</button>
+            <button id="unpublishVideo" disabled>unpublish Video</button>
             <video playsinline autoplay muted></video>
-            <h2>Offer SDP</h2>
-            <textarea></textarea>
-            <br>
-            <br>
         </div>
         <div id="remote">
             <h2>Remote</h2>
+            <button id="subscribeAudio" class="start" disabled>subscribe Audio</button>
+            <button id="unsubscribeAudio" disabled>unsubscribe Audio</button>
+            <button id="subscribeVideo" class="start" disabled>subscribe Video</button>
+            <button id="unsubscribeVideo" disabled>unsubscribe Video</button>
             <video playsinline autoplay></video>
-            <h2>Answer SDP</h2>
-            <textarea></textarea>
+            <audio controls autoplay></audio>
         </div>
     </div>
 
-    <p>View the console to see logging.</p>
-
-    <p>The <code>RTCPeerConnection</code> objects <code>localPeerConnection</code> and <code>remotePeerConnection</code>
-        are in global scope, so you can inspect them in the console as well.</p>
-
-    <p>For more information about RTCPeerConnection, see <a
-            href="http://www.html5rocks.com/en/tutorials/webrtc/basics/#toc-rtcpeerconnection"
-            title="RTCPeerConnection section of HTML5 Rocks article about WebRTC">Getting Started With WebRTC</a>.</p>
-
-    <a href="https://github.com/webrtc/samples/tree/gh-pages/src/content/peerconnection/munge-sdp"
-       title="View source for this page on GitHub" id="viewSource">View source on GitHub</a>
 </div>
 
 <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
 <script src="js/main.js"></script>
-
-<script src="../../../js/lib/ga.js"></script>
 
 </body>
 </html>
