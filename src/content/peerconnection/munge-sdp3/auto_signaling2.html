@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head>
+ <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+ <title>Hand Signaling</title>
+ <script type="module" src="js/sdk.js"></script>
+</head>
+<body>
+  oreore WebRTC<br />
+  <button type="button" id="start_video">Start Video</button>
+  <button type="button" id="stop_video">Stop Video</button>
+  &nbsp;
+  <button type="button" id="call">Call</button>
+  &nbsp;
+  <button type="button" id="hang_up">Hang Up</button> 
+  <div>
+    <video id="local_video" autoplay style="width: 160px; height: 120px; border: 1px solid black;"></video>
+    <div id="local_id"></div>
+  </div>
+  <div id="remote_videos">
+  </div>
+</body>
+<script type="module">
+  import { Room } from "./js/sdk.js";
+
+  let localVideo = document.getElementById('local_video');
+  let localIdViewer = document.getElementById('local_id');
+  let remoteVideo = document.getElementById('remote_video');
+  let remoteVideoRoot = document.getElementById('remote_videos');
+
+  function createVideoElement(userId) {
+    if (document.getElementById(userId) !== null) return;
+
+    let hr = document.createElement('hr');
+
+    let video = document.createElement('video');
+    // <video id="remote_video_a" autoplay style="width: 160px; height: 120px; border: 1px solid black;"></video>
+
+    video.id = userId;
+    video.style.width = '160px';
+    video.style.height = '120px';
+    video.style.border = '1px solid black';
+    video.autoplay = true;
+    // video.style.margin = '2px';
+
+    let div = document.createElement('div');
+    div.innerHTML = userId;
+
+    remoteVideoRoot.appendChild(hr);
+    remoteVideoRoot.appendChild(video);
+    remoteVideoRoot.appendChild(div);
+  }
+
+  const args = {};
+  document.location.href.split('?')[1]?.split('&').forEach((p) => {
+    const [k, v] = p.split('=');
+    args[k] = v;
+  });
+  console.log(args);
+
+  const room = new Room(args['room']);
+  room.onConnect = () => {
+    localIdViewer.innerHTML = room.signaling.id;
+  };
+  room.onStartVideo = (stream) => {
+    room.playVideo(localVideo, stream);
+  };
+  room.onStopVideo = () => {
+    room.pauseVideo(localVideo);
+  };
+  room.onCallme = (from) => {
+    createVideoElement(from);
+  };
+  room.onClose = (to) => {
+    let remoteVideo = document.getElementById(to);
+    room.pauseVideo(remoteVideo);
+  };
+  room.onOffer = (from) => {
+    createVideoElement(from);
+  };
+  room.onTrack = (userId, stream) => {
+    room.playVideo(document.getElementById(userId), stream);
+  };
+
+  let startVideoButton = document.getElementById('start_video');
+  startVideoButton.onclick = () => room.startVideo();
+
+  let stopVideoButton = document.getElementById('stop_video');
+  stopVideoButton.onclick = () => room.stopVideo();
+
+  let callButton = document.getElementById('call');
+  callButton.onclick = () => room.call();
+
+  let hangUpButton = document.getElementById('hang_up');
+  hangUpButton.onclick = () => room.hangUp();
+</script>
+</html>

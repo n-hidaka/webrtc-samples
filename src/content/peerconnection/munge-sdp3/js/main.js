@@ -8,6 +8,151 @@
 
 'use strict';
 
+// const socket = io("http://34.146.59.68/signaling");
+// console.log({socket});
+const signaling = io("http://104.198.80.67/signaling");
+
+signaling.on('chat message', function(msg) {
+  // var item = document.createElement('li');
+  // item.textContent = msg;
+  // messages.appendChild(item);
+  // window.scrollTo(0, document.body.scrollHeight);
+  console.log('receive chat message: %s', msg)
+});
+
+signaling.on('sign:callme', async function(msg) {
+  const msgJson = JSON.parse(msg);
+
+  console.log('// receive sign:callme: %s %o', msg, msgJson);
+
+  if (msgJson.from === signaling.id) return;
+  console.group('// receive sign:callme');
+
+  console.log({ localPeerConnection });
+
+  createPeerConnection();
+  await createOffer();
+  await setOffer();
+
+  const sdp = offerSdpTextarea.value;
+  const offerJson = {
+    to: msgJson.from,
+    sdp: sdp
+  }
+  console.log('// send sign:offer');
+  signaling.emit('sign:offer', JSON.stringify(offerJson));
+
+  console.groupEnd();
+});
+
+signaling.on('sign:offer', async function(msg) {
+  const msgJson = JSON.parse(msg);
+
+  if (msgJson.from === signaling.id) return;
+  console.group('// receive sign:offer');
+
+  console.log('// receive sign:offer: %s %o', msg, msgJson);
+  offerSdpTextarea.value = msgJson.sdp;
+
+
+  const sdp = msgJson.sdp
+    .split('\n')
+    .map(l => l.trim())
+    .join('\r\n');
+  const offer = {
+    type: 'offer',
+    sdp: sdp
+  };
+  try {
+    // eslint-disable-next-line no-unused-vars
+    console.log({ localPeerConnection });
+    const ignore = await localPeerConnection.setRemoteDescription(offer);
+    onSetSessionDescriptionSuccess();
+    createAnswerButton.disabled = false;
+  } catch (e) {
+    onSetSessionDescriptionError(e);
+    return;
+  }
+  // createAnswer();
+  try {
+    const answer = await localPeerConnection.createAnswer();
+    gotDescription2(answer);
+  } catch (e) {
+    onCreateSessionDescriptionError(e);
+  }
+  // setAnswer();
+  const ansSdp = answerSdpTextarea.value
+    .split('\n')
+    .map(l => l.trim())
+    .join('\r\n');
+  const answer = {
+    type: 'answer',
+    sdp: ansSdp
+  };
+
+  try {
+    // eslint-disable-next-line no-unused-vars
+    const ignore = await localPeerConnection.setLocalDescription(answer);
+    onSetSessionDescriptionSuccess();
+    setAnswerButton.disabled = true;
+  } catch (e) {
+    onSetSessionDescriptionError(e);
+    return;
+  }
+
+  const __sdp = answerSdpTextarea.value;
+  const answerJson = {
+    to: msgJson.from,
+    sdp: __sdp
+  }
+  console.log('// send sign:answer');
+  signaling.emit('sign:answer', JSON.stringify(answerJson));
+
+  console.groupEnd();
+});
+
+signaling.on('sign:answer', async function(msg) {
+  const msgJson = JSON.parse(msg);
+
+  if (msgJson.from === signaling.id) return;
+  console.group('// receive sign:answer');
+
+  console.log('// receive sign:answer: %s %o', msg, msgJson);
+  answerSdpTextarea.value = msgJson.sdp;
+
+  const sdp = msgJson.sdp
+    .split('\n')
+    .map(l => l.trim())
+    .join('\r\n');
+  const answer = {
+    type: 'answer',
+    sdp: sdp
+  };
+  try {
+    // eslint-disable-next-line no-unused-vars
+    const ignore = await localPeerConnection.setRemoteDescription(answer);
+    onSetSessionDescriptionSuccess();
+  } catch (e) {
+    onSetSessionDescriptionError(e);
+    return;
+  }
+
+  console.groupEnd();
+});
+
+signaling.on('connect', function(e) {
+  console.log({signaling});
+  console.log('I am %s', signaling.id);
+});
+
+function startCall() {
+  const callmeJson = {
+    type: 'call me'
+  }
+  console.log('// send sign:callme');
+  signaling.emit('sign:callme', JSON.stringify(callmeJson));
+}
+
 try {
   navigator.mediaDevices.enumerateDevices()
       .then(gotSources);
@@ -26,7 +171,8 @@ let dataChannelDataReceived;
 
 getMediaButton.onclick = getMedia;
 createPeerConnectionButton.onclick = createPeerConnection;
-createOfferButton.onclick = createOffer;
+// createOfferButton.onclick = createOffer;
+createOfferButton.onclick = startCall;
 setOfferButton.onclick = setOffer;
 createAnswerButton.onclick = createAnswer;
 setAnswerButton.onclick = setAnswer;
@@ -46,7 +192,6 @@ const remoteVideo = document.querySelector('div#remote video');
 const selectSourceDiv = document.querySelector('div#selectSource');
 
 let localPeerConnection;
-let remotePeerConnection;
 let localStream;
 let sendChannel;
 let receiveChannel;
@@ -86,6 +231,9 @@ function gotSources(sourceInfos) {
 
 async function getMedia() {
   getMediaButton.disabled = true;
+
+  console.log('// send chat message');
+  signaling.emit('chat message', 'get media');
 
   if (localStream) {
     localVideo.srcObject = null;
@@ -142,17 +290,74 @@ function createPeerConnection() {
 
   localPeerConnection = new RTCPeerConnection(servers);
   console.log('Created local peer connection object localPeerConnection');
-  localPeerConnection.onicecandidate = e => onIceCandidate(localPeerConnection, e);
+
+  console.log('"ontrack" in localPeerConnection: ', 'ontrack' in localPeerConnection);
+  if ('ontrack' in localPeerConnection) {
+    localPeerConnection.ontrack = function(event) {
+      console.log('-- localPeerConnection.ontrack()');
+      let stream = event.streams[0];
+      playVideo(remoteVideo, stream);
+    };
+  }
+  else {
+    localPeerConnection.onaddstream = function(event) {
+      console.log('-- localPeerConnection.onaddstream()');
+      let stream = event.stream;
+      playVideo(remoteVideo, stream);
+    };
+  }
+
+  // localPeerConnection.onicecandidate = e => onIceCandidate(localPeerConnection, e);
+  localPeerConnection.onicecandidate = function (evt) {
+    if (evt.candidate) {
+      console.log(evt.candidate);
+
+      // Trickle ICE の場合は、ICE candidateを相手に送る
+      // Vanilla ICE の場合には、何もしない
+    } else {
+      console.log('empty ice event');
+
+      // Trickle ICE の場合は、何もしない
+      // Vanilla ICE の場合には、ICE candidateを含んだSDPを相手に送る
+      //sendSdp(localPeerConnection.localDescription);
+    }
+  };
+
+  // --- when need to exchange SDP ---
+  localPeerConnection.onnegotiationneeded = function(evt) {
+    console.log('-- onnegotiationneeded() ---');
+  };
+
+  // --- other events ----
+  localPeerConnection.onicecandidateerror = function (evt) {
+    console.error('ICE candidate ERROR:', evt);
+  };
+
+  localPeerConnection.onsignalingstatechange = function() {
+    console.log('== signaling status=' + localPeerConnection.signalingState);
+  };
+
+  localPeerConnection.oniceconnectionstatechange = function() {
+    console.log('== ice connection status=' + localPeerConnection.iceConnectionState);
+    if (localPeerConnection.iceConnectionState === 'disconnected') {
+      console.log('-- disconnected --');
+      hangUp();
+    }
+  };
+
+  localPeerConnection.onicegatheringstatechange = function() {
+    console.log('==***== ice gathering state=' + localPeerConnection.iceGatheringState);
+  };
+  
+  localPeerConnection.onconnectionstatechange = function() {
+    console.log('==***== connection state=' + localPeerConnection.connectionState);
+  };
+
+
   sendChannel = localPeerConnection.createDataChannel('sendDataChannel', dataChannelOptions);
   sendChannel.onopen = onSendChannelStateChange;
   sendChannel.onclose = onSendChannelStateChange;
   sendChannel.onerror = onSendChannelStateChange;
-
-  remotePeerConnection = new RTCPeerConnection(servers);
-  console.log('Created remote peer connection object remotePeerConnection');
-  remotePeerConnection.onicecandidate = e => onIceCandidate(remotePeerConnection, e);
-  remotePeerConnection.ontrack = gotRemoteStream;
-  remotePeerConnection.ondatachannel = receiveChannelCallback;
 
   localStream.getTracks()
       .forEach(track => localPeerConnection.addTrack(track, localStream));
@@ -203,16 +408,6 @@ async function setOffer() {
     onSetSessionDescriptionError(e);
     return;
   }
-
-  try {
-    // eslint-disable-next-line no-unused-vars
-    const ignore = await remotePeerConnection.setRemoteDescription(offer);
-    onSetSessionDescriptionSuccess();
-    createAnswerButton.disabled = false;
-  } catch (e) {
-    onSetSessionDescriptionError(e);
-    return;
-  }
 }
 
 function gotDescription1(description) {
@@ -226,12 +421,6 @@ async function createAnswer() {
   // Since the 'remote' side has no media stream we need
   // to pass in the right constraints in order for it to
   // accept the incoming offer of audio and video.
-  try {
-    const answer = await remotePeerConnection.createAnswer();
-    gotDescription2(answer);
-  } catch (e) {
-    onCreateSessionDescriptionError(e);
-  }
 }
 
 async function setAnswer() {
@@ -248,17 +437,6 @@ async function setAnswer() {
     sdp: sdp
   };
 
-  try {
-    // eslint-disable-next-line no-unused-vars
-    const ignore = await remotePeerConnection.setLocalDescription(answer);
-    onSetSessionDescriptionSuccess();
-    setAnswerButton.disabled = true;
-  } catch (e) {
-    onSetSessionDescriptionError(e);
-    return;
-  }
-
-  console.log(`Modified Answer from remotePeerConnection\n${sdp}`);
   try {
     // eslint-disable-next-line no-unused-vars
     const ignore = await localPeerConnection.setRemoteDescription(answer);
@@ -295,9 +473,7 @@ function hangup() {
     receiveChannel.close();
   }
   localPeerConnection.close();
-  remotePeerConnection.close();
   localPeerConnection = null;
-  remotePeerConnection = null;
   offerSdpTextarea.disabled = true;
   answerSdpTextarea.disabled = true;
   getMediaButton.disabled = false;
@@ -317,7 +493,7 @@ function gotRemoteStream(e) {
 }
 
 function getOtherPc(pc) {
-  return (pc === localPeerConnection) ? remotePeerConnection : localPeerConnection;
+  return (pc === localPeerConnection) ? undefined : localPeerConnection;
 }
 
 function getName(pc) {
@@ -325,13 +501,13 @@ function getName(pc) {
 }
 
 async function onIceCandidate(pc, event) {
-  try {
-    // eslint-disable-next-line no-unused-vars
-    const ignore = await getOtherPc(pc).addIceCandidate(event.candidate);
-    onAddIceCandidateSuccess(pc);
-  } catch (e) {
-    onAddIceCandidateError(pc, e);
-  }
+  // try {
+  //   // eslint-disable-next-line no-unused-vars
+  //   const ignore = await getOtherPc(pc).addIceCandidate(event.candidate);
+  //   onAddIceCandidateSuccess(pc);
+  // } catch (e) {
+  //   onAddIceCandidateError(pc, e);
+  // }
 
   console.log(`${getName(pc)} ICE candidate:\n${event.candidate ? event.candidate.candidate : '(null)'}`);
 }
@@ -370,4 +546,15 @@ function onSendChannelStateChange() {
 function onReceiveChannelStateChange() {
   const readyState = receiveChannel.readyState;
   console.log(`Receive channel state is: ${readyState}`);
+}
+
+function playVideo(element, stream) {
+  if ('srcObject' in element) {
+    element.srcObject = stream;
+  }
+  else {
+    element.src = window.URL.createObjectURL(stream);
+  }
+  element.play();
+  element.volume = 0;
 }
