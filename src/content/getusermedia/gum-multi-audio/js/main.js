@@ -9,17 +9,17 @@
 
 // Put variables in global scope to make them available to the browser console.
 const constraints = window.constraints = {
-  audio: false,
-  video: true
+  audio: true,
+  video: false
 };
 
-function handleSuccess(stream) {
-  const video = document.querySelector('video');
-  const videoTracks = stream.getVideoTracks();
+function handleSuccess(stream, i) {
+  const audio = document.getElementById(`gum-local${i}`);
+  const audioTracks = stream.getAudioTracks();
   console.log('Got stream with constraints:', constraints);
-  console.log(`Using video device: ${videoTracks[0].label}`);
-  window.stream = stream; // make variable available to browser console
-  video.srcObject = stream;
+  console.log(`Using audio device: ${audioTracks[0].label}`);
+  window[`stream${i}`] = stream; // make variable available to browser console
+  audio.srcObject = stream;
 }
 
 function handleError(error) {
@@ -42,14 +42,16 @@ function errorMsg(msg, error) {
   }
 }
 
-async function init(e) {
+async function init(e, i) {
   try {
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    handleSuccess(stream);
+    handleSuccess(stream, i);
     e.target.disabled = true;
   } catch (e) {
     handleError(e);
   }
 }
 
-document.querySelector('#showVideo').addEventListener('click', e => init(e));
+document.querySelector('#openAudio1').addEventListener('click', e => init(e, 1));
+document.querySelector('#openAudio2').addEventListener('click', e => init(e, 2));
+document.querySelector('#openAudio3').addEventListener('click', e => init(e, 3));
